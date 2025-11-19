@@ -33,9 +33,9 @@ const viewer = new Cesium.Viewer('cesiumContainer', {
     requestWaterMask: true,
     requestVertexNormals: true
   }),
-  animation: false,
-  timeline: false,
-  baseLayerPicker: false,  // We'll use default satellite imagery
+  animation: true,       // Enable animation control
+  timeline: true,        // Enable timeline
+  baseLayerPicker: false,
   geocoder: false,
   homeButton: true,
   sceneModePicker: true,
@@ -43,8 +43,19 @@ const viewer = new Cesium.Viewer('cesiumContainer', {
   selectionIndicator: true,
   infoBox: true,
   fullscreenButton: true,
-  vrButton: false
+  vrButton: false,
+  shouldAnimate: true    // Start animation by default
 });
+
+// Configure Clock for 24h simulation
+const start = Cesium.JulianDate.fromDate(new Date(2023, 6, 1, 0)); // Start at midnight
+const stop = Cesium.JulianDate.addDays(start, 1, new Cesium.JulianDate());
+viewer.clock.startTime = start.clone();
+viewer.clock.stopTime = stop.clone();
+viewer.clock.currentTime = start.clone();
+viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP; // Loop the day
+viewer.clock.multiplier = 3600; // 1 second real time = 1 hour simulation time
+viewer.timeline.zoomTo(start, stop);
 
 // Add Cesium OSM Buildings for 3D cities
 try {
@@ -56,6 +67,7 @@ try {
 
 // Enable lighting for better 3D effect
 viewer.scene.globe.enableLighting = true;
+viewer.shadows = true; // Enable shadows for sun rotation effect
 
 // Color scheme for plant types
 const plantColors = {
@@ -76,6 +88,14 @@ const plantModels = {
   wind: 'models/energy-plants/Thermal/coal_power_station.glb' // Placeholder
 };
 
+// Simulation State (Global)
+const gridState = {
+  totalDemand: 0,
+  totalGen: 0,
+  renewablePct: 0,
+  frequency: 50.0
+};
+
 // Add plant entities to the viewer
 bengaluruPlants.forEach(plant => {
   const position = Cesium.Cartesian3.fromDegrees(plant.lon, plant.lat);
@@ -91,7 +111,7 @@ bengaluruPlants.forEach(plant => {
     `,
     model: {
       uri: plantModels[plant.type],
-      scale: 10.0, // Adjust this for realistic size (1.0 = true size if model is in meters)
+      scale: 1.0, // Reduced from 10.0 to 1.0 for realistic size
       color: color, // Tint the model with the plant type color
       colorBlendMode: Cesium.ColorBlendMode.HIGHLIGHT,
       colorBlendAmount: 0.5,
@@ -99,6 +119,45 @@ bengaluruPlants.forEach(plant => {
     }
   });
 });
+
+// Draw power lines (connections) between plants to simulate a grid
+let powerGridEntity;
+function drawPowerLines() {
+  // Create a sequence of positions connecting the plants
+  // We'll connect them in the order they appear in the list, and close the loop
+  const positions = bengaluruPlants.map(plant => Cesium.Cartesian3.fromDegrees(plant.lon, plant.lat));
+  
+  // Close the loop by adding the first point at the end
+  if (positions.length > 0) {
+    positions.push(positions[0]);
+  }
+
+  powerGridEntity = viewer.entities.add({
+    name: 'Power Grid Connections',
+    polyline: {
+      positions: positions,
+      width: 3,
+      material: new Cesium.PolylineGlowMaterialProperty({
+        glowPower: new Cesium.CallbackProperty(() => {
+          // Pulse glow based on total generation (0.1 to 0.5)
+          const loadFactor = Math.min(1.0, (gridState.totalGen || 0) / 1500);
+          return 0.1 + (loadFactor * 0.4);
+        }, false),
+        taperPower: 0.5,
+        color: new Cesium.CallbackProperty(() => {
+          // Red if unstable frequency, Cyan if stable
+          if (gridState.frequency < 49.8 || gridState.frequency > 50.2) {
+            return Cesium.Color.ORANGERED;
+          }
+          return Cesium.Color.CYAN;
+        }, false),
+      }),
+      clampToGround: true // Follow the terrain
+    }
+  });
+}
+
+drawPowerLines();
 
 // Fly the camera to Bengaluru
 viewer.camera.flyTo({
@@ -132,22 +191,41 @@ function buildPlantListUI() {
 
   // Create list items for each category
   for (const category in categories) {
+    if (categories[category].length === 0) continue;
+
     const categoryDiv = document.createElement('div');
     categoryDiv.className = 'plant-category';
     
-    const categoryTitle = document.createElement('h3');
-    categoryTitle.textContent = `${category.charAt(0).toUpperCase() + category.slice(1)} Plants`;
+    const categoryTitle = document.createElement('div');
+    categoryTitle.className = 'category-title';
+    categoryTitle.textContent = `${category.charAt(0).toUpperCase() + category.slice(1)} Power`;
     categoryDiv.appendChild(categoryTitle);
 
-    const ul = document.createElement('ul');
     categories[category].forEach(plant => {
-      const li = document.createElement('li');
-      li.textContent = `${plant.name} (${plant.capacity})`;
-      li.onclick = () => {
+      const item = document.createElement('div');
+      item.className = 'plant-item';
+      
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'plant-name';
+      nameDiv.textContent = plant.name;
+      item.appendChild(nameDiv);
+
+      const infoDiv = document.createElement('div');
+      infoDiv.className = 'plant-info';
+      
+      const capacitySpan = document.createElement('span');
+      capacitySpan.className = 'plant-capacity';
+      capacitySpan.textContent = plant.capacity;
+      infoDiv.appendChild(capacitySpan);
+      
+      item.appendChild(infoDiv);
+
+      item.onclick = () => {
         const entity = viewer.entities.values.find(e => e.name === `${plant.name} (${plant.capacity})`);
         if (entity) {
+          viewer.selectedEntity = entity; // Select the entity to open InfoBox
           viewer.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(plant.lon, plant.lat, 10000), // Fly closer
+            destination: Cesium.Cartesian3.fromDegrees(plant.lon, plant.lat, 5000), // Fly closer
             orientation: {
               heading: Cesium.Math.toRadians(0),
               pitch: Cesium.Math.toRadians(-35),
@@ -157,14 +235,170 @@ function buildPlantListUI() {
           });
         }
       };
-      ul.appendChild(li);
+      categoryDiv.appendChild(item);
     });
-    categoryDiv.appendChild(ul);
     plantList.appendChild(categoryDiv);
   }
 }
 
 // Initial call to build the UI
 buildPlantListUI();
+
+// --- Draggable UI Logic ---
+function makeElementDraggable(elementId, handleId) {
+  const element = document.getElementById(elementId);
+  const handle = document.querySelector(handleId);
+  
+  if (!element || !handle) return;
+
+  let isDragging = false;
+  let startX, startY, initialLeft, initialTop;
+
+  handle.style.cursor = 'grab';
+
+  handle.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    
+    // Get current position (computed style handles both 'left/top' and 'transform' if needed, 
+    // but here we are using absolute positioning with right/top initially. 
+    // We need to switch to left/top for dragging to work smoothly from any position)
+    const rect = element.getBoundingClientRect();
+    initialLeft = rect.left;
+    initialTop = rect.top;
+    
+    // Switch from 'right' positioning to 'left' to allow free movement
+    element.style.right = 'auto';
+    element.style.left = `${initialLeft}px`;
+    element.style.top = `${initialTop}px`;
+    element.style.bottom = 'auto';
+    
+    handle.style.cursor = 'grabbing';
+    
+    // Prevent text selection during drag
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    element.style.left = `${initialLeft + dx}px`;
+    element.style.top = `${initialTop + dy}px`;
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      handle.style.cursor = 'grab';
+    }
+  });
+}
+
+// Initialize draggable card
+makeElementDraggable('plantCard', '.card-header');
+makeElementDraggable('gridMonitor', '.monitor-header'); // Make monitor draggable too
+
+// --- Real-time Simulation Logic ---
+
+// Helper to parse capacity string "45 MW" -> 45
+function parseCapacity(capStr) {
+  return parseFloat(capStr.split(' ')[0]);
+}
+
+// Update Simulation Loop (runs every frame)
+viewer.clock.onTick.addEventListener((clock) => {
+  const time = Cesium.JulianDate.toGregorianDate(clock.currentTime);
+  const hour = time.hour + time.minute / 60; // 0.0 to 24.0
+
+  // 1. Calculate Demand Curve (Simple double peak model)
+  // Base load: 600MW, Morning Peak (9am): +300MW, Evening Peak (7pm): +400MW
+  const baseLoad = 600;
+  const morningPeak = 300 * Math.exp(-Math.pow(hour - 9, 2) / 4);
+  const eveningPeak = 400 * Math.exp(-Math.pow(hour - 19, 2) / 4);
+  const noise = (Math.random() - 0.5) * 20; // Random fluctuation
+  gridState.totalDemand = Math.round(baseLoad + morningPeak + eveningPeak + noise);
+
+  // 2. Calculate Generation per Plant
+  let currentTotalGen = 0;
+  let currentRenewableGen = 0;
+
+  bengaluruPlants.forEach(plant => {
+    const maxCap = parseCapacity(plant.capacity);
+    let currentOutput = 0;
+
+    if (plant.type === 'solar') {
+      // Solar: Bell curve from 6am to 6pm
+      if (hour > 6 && hour < 18) {
+        const sunIntensity = Math.sin(((hour - 6) / 12) * Math.PI);
+        currentOutput = maxCap * sunIntensity;
+        // Add some cloud cover noise
+        currentOutput *= (0.8 + Math.random() * 0.2); 
+      }
+    } else if (plant.type === 'wind') {
+      // Wind: Higher at night/evening usually, random gusts
+      const windIntensity = 0.5 + 0.3 * Math.sin(hour / 24 * Math.PI * 2) + (Math.random() * 0.2);
+      currentOutput = maxCap * windIntensity;
+    } else if (plant.type === 'hydro') {
+      // Hydro: Peaking plant - fills the gap
+      // Simple logic: Run at 50% base, ramp up if demand is high
+      currentOutput = maxCap * 0.5; 
+      if (gridState.totalDemand > 800) currentOutput = maxCap * 0.9; // Peak mode
+    } else if (plant.type === 'nuclear') {
+      // Nuclear: Base load, constant high output
+      currentOutput = maxCap * 0.95; // Always running near full
+    }
+
+    currentTotalGen += currentOutput;
+    if (['solar', 'wind', 'hydro'].includes(plant.type)) {
+      currentRenewableGen += currentOutput;
+    }
+
+    // Update Plant UI (Optional: could update individual list items here)
+  });
+
+  // 3. Load Balancing / Frequency Simulation
+  // If Gen < Demand, Frequency drops. If Gen > Demand, Frequency rises.
+  const balance = currentTotalGen - gridState.totalDemand;
+  // Simple P-controller for frequency
+  gridState.frequency = 50.0 + (balance / 1000) * 0.5; 
+  // Clamp frequency for realism
+  gridState.frequency = Math.max(49.0, Math.min(51.0, gridState.frequency));
+
+  gridState.totalGen = Math.round(currentTotalGen);
+  gridState.renewablePct = Math.round((currentRenewableGen / currentTotalGen) * 100) || 0;
+
+  // 4. Update Dashboard UI
+  updateDashboard(hour);
+});
+
+function updateDashboard(hour) {
+  // Clock
+  const hh = Math.floor(hour).toString().padStart(2, '0');
+  const mm = Math.floor((hour % 1) * 60).toString().padStart(2, '0');
+  document.getElementById('clockDisplay').textContent = `${hh}:${mm}`;
+
+  // Values
+  document.getElementById('totalDemand').textContent = gridState.totalDemand;
+  document.getElementById('totalGen').textContent = gridState.totalGen;
+  document.getElementById('renewablePct').textContent = `${gridState.renewablePct}%`;
+  document.getElementById('gridFreq').textContent = `${gridState.frequency.toFixed(2)} Hz`;
+
+  // Bars (Assuming max capacity ~1500MW for scale)
+  const maxScale = 1500;
+  document.getElementById('demandBar').style.width = `${Math.min(100, (gridState.totalDemand / maxScale) * 100)}%`;
+  document.getElementById('genBar').style.width = `${Math.min(100, (gridState.totalGen / maxScale) * 100)}%`;
+
+  // Color coding frequency
+  const freqElem = document.getElementById('gridFreq');
+  if (gridState.frequency < 49.8 || gridState.frequency > 50.2) {
+    freqElem.style.color = '#ff4f4f'; // Danger
+  } else {
+    freqElem.style.color = '#4caf50'; // Normal
+  }
+}
 
 console.log('Cesium 3D map loaded with', bengaluruPlants.length, 'power plants');
