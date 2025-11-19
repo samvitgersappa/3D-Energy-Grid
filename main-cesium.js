@@ -93,8 +93,14 @@ const gridState = {
   totalDemand: 0,
   totalGen: 0,
   renewablePct: 0,
-  frequency: 50.0
+  frequency: 50.0,
+  marketPrice: 0,      // $/MWh
+  carbonIntensity: 0,  // gCO2/kWh
+  totalRevenue: 0      // Cumulative $
 };
+
+const plantRealtimeData = new Map(); // Store real-time data for each plant
+let selectedPlantName = null; // Track currently selected plant
 
 // Add plant entities to the viewer
 bengaluruPlants.forEach(plant => {
@@ -223,7 +229,8 @@ function buildPlantListUI() {
       item.onclick = () => {
         const entity = viewer.entities.values.find(e => e.name === `${plant.name} (${plant.capacity})`);
         if (entity) {
-          viewer.selectedEntity = entity; // Select the entity to open InfoBox
+          viewer.selectedEntity = entity; // Select the entity
+          showPlantDetail(plant.name); // Show custom dashboard
           viewer.camera.flyTo({
             destination: Cesium.Cartesian3.fromDegrees(plant.lon, plant.lat, 5000), // Fly closer
             orientation: {
@@ -243,6 +250,21 @@ function buildPlantListUI() {
 
 // Initial call to build the UI
 buildPlantListUI();
+
+// Listen for entity selection on the map (e.g. clicking a 3D model)
+viewer.selectedEntityChanged.addEventListener((entity) => {
+  if (entity && entity.name) {
+    // Extract plant name from entity name "Name (Capacity)"
+    const nameMatch = entity.name.match(/^(.*?) \(/);
+    if (nameMatch) {
+      showPlantDetail(nameMatch[1]);
+    }
+  } else {
+    // If deselected (clicking empty space), hide panel
+    // Optional: decide if we want to auto-hide or keep it open
+    // hidePlantDetail(); 
+  }
+});
 
 // --- Draggable UI Logic ---
 function makeElementDraggable(elementId, handleId) {
@@ -301,6 +323,46 @@ function makeElementDraggable(elementId, handleId) {
 // Initialize draggable card
 makeElementDraggable('plantCard', '.card-header');
 makeElementDraggable('gridMonitor', '.monitor-header'); // Make monitor draggable too
+makeElementDraggable('plantDetailPanel', '.panel-header'); // Make detail panel draggable
+
+// --- Plant Detail Panel Logic ---
+
+function showPlantDetail(plantName) {
+  selectedPlantName = plantName;
+  const panel = document.getElementById('plantDetailPanel');
+  panel.classList.add('visible');
+  updatePlantDetailPanel(plantName);
+}
+
+function hidePlantDetail() {
+  selectedPlantName = null;
+  document.getElementById('plantDetailPanel').classList.remove('visible');
+  viewer.selectedEntity = undefined; // Deselect entity
+}
+
+function updatePlantDetailPanel(plantName) {
+  const data = plantRealtimeData.get(plantName);
+  if (!data) return;
+
+  document.getElementById('detailName').textContent = plantName;
+  document.getElementById('detailType').textContent = data.type.toUpperCase();
+  
+  const statusElem = document.getElementById('detailStatus');
+  statusElem.textContent = data.status;
+  statusElem.style.color = data.status === 'ONLINE' ? '#4caf50' : '#ffb74d';
+  statusElem.style.background = data.status === 'ONLINE' ? 'rgba(76, 175, 80, 0.2)' : 'rgba(255, 183, 77, 0.2)';
+
+  document.getElementById('detailOutput').textContent = data.output.toFixed(1);
+  
+  const pct = Math.min(100, (data.output / data.maxCapacity) * 100);
+  document.getElementById('detailOutputBar').style.width = `${pct}%`;
+  
+  document.getElementById('detailEfficiency').textContent = `${data.efficiency.toFixed(1)}%`;
+  document.getElementById('detailTemp').textContent = `${data.temperature.toFixed(1)}°C`;
+}
+
+// Close button handler
+document.getElementById('closeDetail').addEventListener('click', hidePlantDetail);
 
 // --- Real-time Simulation Logic ---
 
@@ -314,65 +376,113 @@ viewer.clock.onTick.addEventListener((clock) => {
   const time = Cesium.JulianDate.toGregorianDate(clock.currentTime);
   const hour = time.hour + time.minute / 60; // 0.0 to 24.0
 
-  // 1. Calculate Demand Curve (Simple double peak model)
-  // Base load: 600MW, Morning Peak (9am): +300MW, Evening Peak (7pm): +400MW
+  // 1. Calculate Demand Curve (Advanced Model)
+  // Base load + Morning/Evening Peaks + Industrial Noise
   const baseLoad = 600;
-  const morningPeak = 300 * Math.exp(-Math.pow(hour - 9, 2) / 4);
-  const eveningPeak = 400 * Math.exp(-Math.pow(hour - 19, 2) / 4);
-  const noise = (Math.random() - 0.5) * 20; // Random fluctuation
-  gridState.totalDemand = Math.round(baseLoad + morningPeak + eveningPeak + noise);
+  const morningPeak = 350 * Math.exp(-Math.pow(hour - 9.5, 2) / 3); // Peak at 9:30 AM
+  const eveningPeak = 450 * Math.exp(-Math.pow(hour - 19.5, 2) / 4); // Peak at 7:30 PM
+  const industrialNoise = (Math.sin(hour * 10) + Math.cos(hour * 23)) * 15; // High freq noise
+  gridState.totalDemand = Math.round(baseLoad + morningPeak + eveningPeak + industrialNoise);
 
   // 2. Calculate Generation per Plant
   let currentTotalGen = 0;
   let currentRenewableGen = 0;
+  let currentCarbonEmissions = 0; // kgCO2/h
 
   bengaluruPlants.forEach(plant => {
     const maxCap = parseCapacity(plant.capacity);
     let currentOutput = 0;
+    let emissionFactor = 0; // kgCO2/MWh
 
     if (plant.type === 'solar') {
       // Solar: Bell curve from 6am to 6pm
       if (hour > 6 && hour < 18) {
-        const sunIntensity = Math.sin(((hour - 6) / 12) * Math.PI);
+        const sunIntensity = Math.max(0, Math.sin(((hour - 6) / 12) * Math.PI));
         currentOutput = maxCap * sunIntensity;
-        // Add some cloud cover noise
-        currentOutput *= (0.8 + Math.random() * 0.2); 
+        // Cloud cover simulation (Perlin-like noise)
+        const cloudCover = Math.sin(hour * 5) * 0.1 + 0.9; 
+        currentOutput *= cloudCover;
       }
+      emissionFactor = 0;
     } else if (plant.type === 'wind') {
-      // Wind: Higher at night/evening usually, random gusts
-      const windIntensity = 0.5 + 0.3 * Math.sin(hour / 24 * Math.PI * 2) + (Math.random() * 0.2);
-      currentOutput = maxCap * windIntensity;
+      // Wind: Diurnal pattern + Gusts
+      const windBase = 0.4 + 0.3 * Math.sin((hour - 14) / 24 * Math.PI * 2); // Higher in evening
+      const gust = (Math.sin(hour * 45) * 0.2);
+      currentOutput = maxCap * Math.max(0, windBase + gust);
+      emissionFactor = 0;
     } else if (plant.type === 'hydro') {
-      // Hydro: Peaking plant - fills the gap
-      // Simple logic: Run at 50% base, ramp up if demand is high
-      currentOutput = maxCap * 0.5; 
-      if (gridState.totalDemand > 800) currentOutput = maxCap * 0.9; // Peak mode
+      // Hydro: Dispatchable - ramps up to meet demand peaks
+      const demandFactor = (gridState.totalDemand - 600) / 500; // Normalized peak demand
+      currentOutput = maxCap * (0.4 + Math.max(0, demandFactor * 0.6)); 
+      emissionFactor = 0;
     } else if (plant.type === 'nuclear') {
-      // Nuclear: Base load, constant high output
-      currentOutput = maxCap * 0.95; // Always running near full
+      // Nuclear: Base load, very stable
+      currentOutput = maxCap * 0.98; 
+      emissionFactor = 12; // Very low but non-zero lifecycle
     }
 
     currentTotalGen += currentOutput;
+    currentCarbonEmissions += currentOutput * emissionFactor;
+
     if (['solar', 'wind', 'hydro'].includes(plant.type)) {
       currentRenewableGen += currentOutput;
     }
 
-    // Update Plant UI (Optional: could update individual list items here)
+    // Store real-time data for this plant
+    plantRealtimeData.set(plant.name, {
+      output: currentOutput,
+      maxCapacity: maxCap,
+      efficiency: (currentOutput / maxCap) * 100,
+      temperature: 25 + (currentOutput / maxCap) * 40 + (Math.random() * 2), // Simulated temp
+      status: currentOutput > 0.1 ? 'ONLINE' : 'STANDBY',
+      type: plant.type
+    });
   });
 
-  // 3. Load Balancing / Frequency Simulation
-  // If Gen < Demand, Frequency drops. If Gen > Demand, Frequency rises.
-  const balance = currentTotalGen - gridState.totalDemand;
-  // Simple P-controller for frequency
-  gridState.frequency = 50.0 + (balance / 1000) * 0.5; 
-  // Clamp frequency for realism
-  gridState.frequency = Math.max(49.0, Math.min(51.0, gridState.frequency));
+  // 3. Grid Physics & Economics
+  
+  // Import/Export Logic: If Demand > Gen, we import dirty power. If Gen > Demand, we export.
+  const netLoad = gridState.totalDemand - currentTotalGen;
+  
+  if (netLoad > 0) {
+    // Importing power (usually fossil fuel heavy peaker plants)
+    currentTotalGen += netLoad; // Grid balances by importing
+    currentCarbonEmissions += netLoad * 450; // Gas peaker ~450 kgCO2/MWh
+  }
 
+  // Frequency Simulation with Inertia
+  const balance = (currentTotalGen - gridState.totalDemand); // Should be 0 if balanced perfectly
+  // Add some "error" to simulation to make frequency wobble
+  const controlError = (Math.random() - 0.5) * 5; 
+  const targetFreq = 50.0 + (controlError / 1000);
+  // Smooth transition (Inertia)
+  gridState.frequency = gridState.frequency * 0.95 + targetFreq * 0.05;
+
+  // Economics
+  // Price spikes when demand is high or renewables are low
+  const scarcityFactor = Math.max(0, (gridState.totalDemand / 1200)); // 0 to 1+
+  const basePrice = 40; // $/MWh
+  gridState.marketPrice = basePrice + (scarcityFactor * scarcityFactor * 100);
+  
+  // Revenue Accumulation (Time step is roughly 1/60th of an hour in real time, but simulation is 3600x speed)
+  // 1 real sec = 1 sim hour. 60fps. 
+  // So each tick is 1/60th of a real second = 1/60th of a sim hour = 1 sim minute.
+  const hoursPerTick = 1 / 60; 
+  const revenueTick = (gridState.totalDemand * gridState.marketPrice) * hoursPerTick;
+  gridState.totalRevenue += revenueTick;
+
+  // Metrics
   gridState.totalGen = Math.round(currentTotalGen);
   gridState.renewablePct = Math.round((currentRenewableGen / currentTotalGen) * 100) || 0;
+  gridState.carbonIntensity = Math.round(currentCarbonEmissions / currentTotalGen); // gCO2/kWh approx
 
   // 4. Update Dashboard UI
   updateDashboard(hour);
+  
+  // 5. Update Plant Detail Panel if open
+  if (selectedPlantName) {
+    updatePlantDetailPanel(selectedPlantName);
+  }
 });
 
 function updateDashboard(hour) {
@@ -382,10 +492,15 @@ function updateDashboard(hour) {
   document.getElementById('clockDisplay').textContent = `${hh}:${mm}`;
 
   // Values
-  document.getElementById('totalDemand').textContent = gridState.totalDemand;
-  document.getElementById('totalGen').textContent = gridState.totalGen;
+  document.getElementById('totalDemand').textContent = gridState.totalDemand.toLocaleString();
+  document.getElementById('totalGen').textContent = gridState.totalGen.toLocaleString();
   document.getElementById('renewablePct').textContent = `${gridState.renewablePct}%`;
-  document.getElementById('gridFreq').textContent = `${gridState.frequency.toFixed(2)} Hz`;
+  document.getElementById('gridFreq').textContent = `${gridState.frequency.toFixed(3)} Hz`;
+  
+  // New Values
+  document.getElementById('marketPrice').textContent = `$${gridState.marketPrice.toFixed(2)}`;
+  document.getElementById('carbonIntensity').textContent = `${gridState.carbonIntensity}g`;
+  document.getElementById('totalRevenue').textContent = Math.floor(gridState.totalRevenue).toLocaleString();
 
   // Bars (Assuming max capacity ~1500MW for scale)
   const maxScale = 1500;
@@ -394,7 +509,7 @@ function updateDashboard(hour) {
 
   // Color coding frequency
   const freqElem = document.getElementById('gridFreq');
-  if (gridState.frequency < 49.8 || gridState.frequency > 50.2) {
+  if (gridState.frequency < 49.9 || gridState.frequency > 50.1) {
     freqElem.style.color = '#ff4f4f'; // Danger
   } else {
     freqElem.style.color = '#4caf50'; // Normal

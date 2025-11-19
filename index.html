@@ -363,58 +363,189 @@
         margin-bottom: 6px;
         font-size: 13px;
       }
+      
+      /* Plant Detail Panel */
+      #plantDetailPanel {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 320px;
+        background: var(--glass-bg);
+        backdrop-filter: blur(25px);
+        -webkit-backdrop-filter: blur(25px);
+        border: 1px solid var(--glass-border);
+        border-radius: 20px;
+        box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
+        padding: 0;
+        z-index: 20;
+        display: none; /* Hidden by default */
+        overflow: hidden;
+        animation: popIn 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+
+      #plantDetailPanel.visible {
+        display: block;
+      }
+
+      @keyframes popIn {
+        from { opacity: 0; transform: translate(-50%, -40%) scale(0.95); }
+        to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+      }
+
+      .panel-header {
+        padding: 20px 24px;
+        background: rgba(255, 255, 255, 0.03);
+        border-bottom: 1px solid var(--glass-border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .panel-header h3 {
+        margin: 0;
+        font-size: 18px;
+        color: var(--text-primary);
+      }
+
+      .close-btn {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        font-size: 24px;
+        cursor: pointer;
+        padding: 0;
+        line-height: 1;
+      }
+
+      .close-btn:hover { color: var(--text-primary); }
+
+      .detail-content { padding: 24px; }
+
+      .detail-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 12px;
+        font-size: 14px;
+        color: var(--text-secondary);
+      }
+
+      .detail-value { color: var(--text-primary); font-weight: 500; }
+
+      .detail-metric { margin: 20px 0 8px 0; }
+      .metric-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+      .metric-value-large { font-size: 32px; font-weight: 700; color: var(--accent-color); margin: 4px 0; }
+      .unit { font-size: 16px; font-weight: 500; color: var(--text-secondary); }
+
+      .detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-top: 24px;
+        padding-top: 20px;
+        border-top: 1px solid var(--glass-border);
+      }
+
+      .mini-stat { display: flex; flex-direction: column; gap: 4px; }
+      .mini-stat .label { font-size: 11px; color: var(--text-secondary); }
+      .mini-stat .value { font-size: 16px; font-weight: 600; color: var(--text-primary); }
 
       .monitor-value {
         font-weight: 600;
       }
 
-      .monitor-bar-bg {
-        height: 6px;
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 3px;
-        margin-bottom: 12px;
-        overflow: hidden;
+      /* Animation */
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
       }
 
-      .monitor-bar-fill {
-        height: 100%;
-        background: var(--accent-color);
-        border-radius: 3px;
-        transition: width 0.5s ease;
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
 
-      #demandBar { background: #ff4f4f; }
-      #genBar { background: #4caf50; }
+      @keyframes pop {
+        0% {
+          transform: scale(0.9);
+          opacity: 0;
+        }
+        70% {
+          transform: scale(1.05);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
 
-      .monitor-divider {
+      /* Misc */
+      hr {
+        border: 0;
         height: 1px;
         background: var(--glass-border);
         margin: 16px 0;
       }
 
-      .monitor-stats {
-        display: flex;
-        justify-content: space-between;
-      }
+      /* Media Queries */
+      @media (max-width: 768px) {
+        #plantCard {
+          width: 100%;
+          right: 0;
+          border-radius: 0;
+        }
 
-      .stat-item {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
+        #gridMonitor {
+          width: 100%;
+          left: 0;
+          border-radius: 0;
+        }
 
-      .stat-label {
-        font-size: 11px;
-        color: var(--text-secondary);
-      }
+        .header-content {
+          padding: 12px 16px;
+        }
 
-      .stat-value {
-        font-size: 18px;
-        font-weight: 700;
-      }
+        h1 {
+          font-size: 20px;
+        }
 
-      #renewablePct { color: #4caf50; }
-      #gridFreq { color: #ffb74d; }
+        .control-item {
+          font-size: 10px;
+        }
+
+        #clockDisplay {
+          font-size: 14px;
+        }
+
+        .monitor-header h3 {
+          font-size: 12px;
+        }
+
+        .monitor-row {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .detail-content {
+          padding: 16px;
+        }
+
+        .detail-row {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .mini-stat {
+          flex-direction: row;
+          justify-content: space-between;
+        }
+      }
     </style>
   </head>
   <body>
@@ -470,6 +601,59 @@
         <div class="stat-item">
           <span class="stat-label">Frequency</span>
           <span class="stat-value" id="gridFreq">50.0 Hz</span>
+        </div>
+      </div>
+
+      <div class="monitor-divider"></div>
+
+      <div class="monitor-stats">
+        <div class="stat-item">
+          <span class="stat-label">Market Price</span>
+          <span class="stat-value" id="marketPrice">$0.00</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Carbon</span>
+          <span class="stat-value" id="carbonIntensity">0g</span>
+        </div>
+      </div>
+      
+      <div class="monitor-row" style="margin-top: 12px;">
+        <div class="monitor-label">Est. Revenue</div>
+        <div class="monitor-value" style="color: var(--accent-color);">$<span id="totalRevenue">0</span></div>
+      </div>
+    </div>
+
+    <!-- Plant Detail Dashboard -->
+    <div id="plantDetailPanel">
+      <div class="panel-header">
+        <h3 id="detailName">Plant Name</h3>
+        <button id="closeDetail" class="close-btn">×</button>
+      </div>
+      <div class="detail-content">
+        <div class="detail-row">
+          <span class="detail-label">Type</span>
+          <span class="detail-value" id="detailType">Solar</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Status</span>
+          <span class="status-badge" id="detailStatus">ONLINE</span>
+        </div>
+        
+        <div class="detail-metric">
+          <span class="metric-label">Real-time Output</span>
+          <div class="metric-value-large"><span id="detailOutput">0</span> <span class="unit">MW</span></div>
+        </div>
+        <div class="monitor-bar-bg"><div id="detailOutputBar" class="monitor-bar-fill" style="width: 0%"></div></div>
+        
+        <div class="detail-grid">
+          <div class="mini-stat">
+            <span class="label">Efficiency</span>
+            <span class="value" id="detailEfficiency">0%</span>
+          </div>
+          <div class="mini-stat">
+            <span class="label">Temperature</span>
+            <span class="value" id="detailTemp">0°C</span>
+          </div>
         </div>
       </div>
     </div>
