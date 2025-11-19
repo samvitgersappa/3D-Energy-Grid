@@ -29,3 +29,19 @@ yarn-error.log*
 # Cache directories
 .cache/
 .parcel-cache/
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Testing
+coverage/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
