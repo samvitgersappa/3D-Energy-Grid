@@ -11,7 +11,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "This project renders a realistic energy landscape with a thermal power plant, a hydro dam, procedural terrain, grass, water, and a physical sky using Three.js and Vite.",
   "dependencies": {
     "cesium": "^1.135.0",
     "leaflet": "^1.9.4",

@@ -8,6 +8,7 @@ import 'cesium/Build/Cesium/Widgets/widgets.css';
 Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI1ZjE0YmM0MS03MDdkLTQyZmMtODFiMC00YjljZDcyMzdhYTEiLCJpZCI6MzYxNzI0LCJpYXQiOjE3NjM1Mzg0NTF9.gndeuPVI38HHOj7CgWhS5lCij_BwzL6SmSPkubXvP_4';
 
 // Power plant locations in Bengaluru area
+// TO CHANGE POSITIONS: Update the 'lat' (latitude) and 'lon' (longitude) values below.
 const bengaluruPlants = [
   // Hydro plants
   { name: 'Hesaraghatta Hydro', type: 'hydro', capacity: '45 MW', lat: 13.1328, lon: 77.4714 },
@@ -78,14 +79,11 @@ const plantColors = {
 };
 
 // Paths to the 3D models (GLB format required for Cesium)
-// NOTE: Since OBJ conversion failed, we are using the available Thermal GLB models as placeholders.
-// To use your specific models, please convert your OBJ files to GLB using https://blackthread.io/gltf-converter/
-// and save them to these paths:
 const plantModels = {
-  hydro: 'models/energy-plants/Thermal/coal_power_station.glb', // Placeholder
-  nuclear: 'models/energy-plants/Thermal/thermal_power_plant.glb', // Placeholder
-  solar: 'models/energy-plants/Thermal/thermal_power_plant.glb', // Placeholder
-  wind: 'models/energy-plants/Thermal/coal_power_station.glb' // Placeholder
+  hydro: 'models/energy-plants/gravity-dam/USACE-3D-22-002-dam_converted.glb', 
+  nuclear: 'models/energy-plants/nuclear-power-plant/ImageToStl.com_aes/aes_converted.glb',
+  solar: 'models/energy-plants/Solar_Panels_V1_L3.123cc8f890de-f0dc-4416-91ba-2d06cafb9a74/Solar_Panels_V1_L3.123cc8f890de-f0dc-4416-91ba-2d06cafb9a74/10781_Solar-Panels_V1_converted.glb',
+  wind: 'models/energy-plants/38-eolic-obj/EolicOBJ_converted.glb'
 };
 
 // Simulation State (Global)
@@ -117,10 +115,15 @@ bengaluruPlants.forEach(plant => {
     `,
     model: {
       uri: plantModels[plant.type],
-      scale: 1.0, // Reduced from 10.0 to 1.0 for realistic size
-      color: color, // Tint the model with the plant type color
-      colorBlendMode: Cesium.ColorBlendMode.HIGHLIGHT,
-      colorBlendAmount: 0.5,
+      // TO CHANGE SIZE: Adjust the 'scale' value below.
+      scale: 20.0, 
+      
+      // --- COMMENT OUT THESE 3 LINES TO RESTORE ORIGINAL COLORS ---
+      // color: color, // Tint the model with the plant type color
+      // colorBlendMode: Cesium.ColorBlendMode.HIGHLIGHT,
+      // colorBlendAmount: 0.5,
+      // ------------------------------------------------------------
+
       heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
     }
   });
@@ -129,6 +132,8 @@ bengaluruPlants.forEach(plant => {
 // Draw power lines (connections) between plants to simulate a grid
 let powerGridEntity;
 function drawPowerLines() {
+  // TO CHANGE POWER LINES: Modify how 'positions' are calculated here.
+  // Currently it connects plants in the order they appear in the list.
   // Create a sequence of positions connecting the plants
   // We'll connect them in the order they appear in the list, and close the loop
   const positions = bengaluruPlants.map(plant => Cesium.Cartesian3.fromDegrees(plant.lon, plant.lat));
@@ -477,7 +482,7 @@ viewer.clock.onTick.addEventListener((clock) => {
   gridState.carbonIntensity = Math.round(currentCarbonEmissions / currentTotalGen); // gCO2/kWh approx
 
   // 4. Update Dashboard UI
-  updateDashboard(hour);
+  // updateDashboard(hour);
   
   // 5. Update Plant Detail Panel if open
   if (selectedPlantName) {
